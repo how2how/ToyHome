@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>System Settings</title>
+</head>
+<body>
+	<form id="settings" action='/system' method="POST">
+		{% raw xsrf_form_html() %}
+		{% for k,v in settings.items() %}
+    <div>{{k}}:  <input type="text" name="{{k}}" value="{{v}}"/></div>
+    {%end%}
+    <button type="submit">Save</button>
+  </form>
+
+
+</body>
+</html>
