@@ -29,7 +29,6 @@ def _request(method='GET', uri=None, data=None, headers=None):
     except Exception as e:
         logging.error('[-] Request error: %s' % url)
         logging.exception(e)
-        print(req.get_method)
         rsp = None
     return rsp
 
@@ -61,9 +60,11 @@ def get(owner, token, repo, path):
     """
     uri = '/repos/%s/%s/contents/%s' % (owner, repo, path)
     rsp = request(token, uri=uri)
-    content = loads(rsp.read().strip()) if rsp else {}
-    # return content.get('content', '').decode('base64'), content
-    return content
+    if rsp:
+        content = loads(rsp.read().strip()) if rsp else {}
+        # return content.get('content', '').decode('base64'), content
+        return content
+    return ''
 
 
 def update(owner, token, repo, path, content, sha, msg='update file'):

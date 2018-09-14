@@ -12,7 +12,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from tornado.options import define, options
 define("port", default=8000, help="run on the given port", type=int)
 
-from controller.utils import GithubApi as gh
+from commander.utils import GithubApi as gh
 
 
 class BaseHandler(tornado.web.RequestHandler):
@@ -73,10 +73,13 @@ class CovertutilsHandler(BaseHandler):
 class ResultHandler(BaseHandler):
     def get(self):
         user, token, repo = self.sysconf['RetAccount'].split('$$')
-        gh.put(user, token, repo, 'data/test.dat', 'test')
-        data = gh.get(user, token, repo, self.sysconf['RetPath'])
-        ret = dict(count=len(data), result=data)
-        self.write(ret)
+
+        data = gh.get(user, token, repo, self.sysconf['RetPath'] + 'test.dat')
+        if not data:
+            gh.put(user, token, repo, 'data/test.dat', 'test1')
+        gh.update(user, token, repo, 'data/test.dat', 'test1', data['sha'])
+        # ret = dict(count=len(data), result=data)
+        self.write(data)
 
 
 class TaskHandler(BaseHandler):
