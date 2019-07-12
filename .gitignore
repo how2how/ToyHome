@@ -1,10 +1,11 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
+# *.py[cod]
+*.pyc
 *$py.class
 
 # C extensions
-*.so
+# *.so
 
 # IDEA
 .idea/
@@ -17,7 +18,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/
 lib64/
 parts/
 sdist/
