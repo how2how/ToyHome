@@ -8,18 +8,25 @@ import socket
 import string
 import time
 import threading
-
-from commander.thirdparty.Crypto import Random
-from commander.thirdparty.Crypto.PublicKey import RSA
-from commander.thirdparty.Crypto.Cipher import AES, PKCS1_OAEP
-from commander.thirdparty.httpimp import add_remote_repo, remove_remote_repo
-from commander.thirdparty.httpimp import remote_repo, git_repo
+import logging
 
 try:
     from urllib2 import urlopen, Request
 except ImportError:
     from urllib.request import urlopen, Request
-import logging
+
+from commander.thirdparty.httpimport import add_remote_repo, remove_remote_repo
+from commander.thirdparty.httpimport import remote_repo, git_repo
+
+if platform.system() == 'linux':
+    from commander.thirdparty.unx.Crypto import Random
+    from commander.thirdparty.unx.Crypto.PublicKey import RSA
+    from commander.thirdparty.unx.Crypto.Cipher import AES, PKCS1_OAEP
+elif platform.system() == 'windows':
+    from commander.thirdparty.win.Crypto import Random
+    from commander.thirdparty.win.Crypto.PublicKey import RSA
+    from commander.thirdparty.win.Crypto.Cipher import AES, PKCS1_OAEP
+
 # fmt = '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s'
 fmt = '[%(asctime)s] [%(levelname)s] [ %(filename)s:%(lineno)s ] %(message)s '
 logging.basicConfig(level=logging.INFO, format=fmt)
@@ -397,7 +404,7 @@ class Agent(object):
         self.init = False
 
     def parse_require(self, pkg):
-        requires = pkg.get('require', None)
+        requires = pkg.get('requires', None)
         if requires:
             for k, v in requires.items():
                 self.load(v, k)
