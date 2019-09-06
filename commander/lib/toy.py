@@ -16,16 +16,19 @@ except ImportError:
     from urllib.request import urlopen, Request
 
 from commander.thirdparty.httpimport import add_remote_repo, remove_remote_repo
-from commander.thirdparty.httpimport import remote_repo, git_repo
+from commander.thirdparty.httpimport import remote_repo, github_repo
 
-if platform.system() == 'linux':
-    from commander.thirdparty.unx.Crypto import Random
-    from commander.thirdparty.unx.Crypto.PublicKey import RSA
-    from commander.thirdparty.unx.Crypto.Cipher import AES, PKCS1_OAEP
-elif platform.system() == 'windows':
-    from commander.thirdparty.win.Crypto import Random
-    from commander.thirdparty.win.Crypto.PublicKey import RSA
-    from commander.thirdparty.win.Crypto.Cipher import AES, PKCS1_OAEP
+try:
+    import Crypto
+except ImportError:
+    if platform.system() == 'linux':
+        from toy.lib.lnx.Crypto import Random
+        from toy.lib.lnx.Crypto.PublicKey import RSA
+        from toy.lib.lnx.Crypto.Cipher import AES, PKCS1_OAEP
+    elif platform.system() == 'windows':
+        from toy.lib.win.Crypto import Random
+        from toy.lib.win.Crypto.PublicKey import RSA
+        from toy.lib.win.Crypto.Cipher import AES, PKCS1_OAEP
 
 # fmt = '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s'
 fmt = '[%(asctime)s] [%(levelname)s] [ %(filename)s:%(lineno)s ] %(message)s '
@@ -383,7 +386,7 @@ class Agent(object):
         md = ','.join(module) if isinstance(
             module, (list, tuple)) else module
 
-        with git_repo(user, repo):
+        with github_repo(user, repo):
             exec "from %s import %s" % (pk, md)
 
     @staticmethod
