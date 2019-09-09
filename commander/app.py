@@ -8,7 +8,7 @@ import json
 from tornado.options import define, options
 
 from commander.lib.githubapi import GitHubAPI
-from commander.lib.sqlite import SQLite
+from commander.lib.database import init_db
 
 
 define("port", default=8000, help="run on the given port", type=int)
@@ -108,11 +108,11 @@ class WebsocketHandler(tornado.websocket.WebSocketHandler):
 class ToyHomeApp(tornado.web.Application):
 
     def __init__(self, urls, **kwargs):
-        super().__init__(urls, **kwargs)
+        super(ToyHomeApp, self).__init__(urls, **kwargs)
         self.system_settings = self.settings['sysconf']
-        self.db = SQLite(
-            self.system_settings.get('LocalDatabase', './data/data.db')
-        )
+        dbpath = self.settings.get('db_path')
+        dbpath = os.path.join(dbpath, 'data.db') if dbpath else 'data.db'
+        self.db = init_db(dbpath)
         o, t, r = self.system_settings['BaseAccount'].split('$$')
         self.gh = GitHubAPI(gtoken=t, guser=o, grepo=r)
 
@@ -122,6 +122,7 @@ if __name__ == "__main__":
 
     settings = {
         "sysconf": json.load(open('config/system.conf', 'rb')),
+        "db_path": os.path.join(os.path.dirname(__file__), "data"),
         "static_path": os.path.join(os.path.dirname(__file__), "static"),
         "template_path": os.path.join(os.path.dirname(__file__), "templates"),
         "cookie_secret": "bZJc2sWbQLKos6GkHn/VB9oXwQt8S0R0kRvJ5/xJ89E=",

