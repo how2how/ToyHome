@@ -543,9 +543,11 @@ class Agent(object):
                     t.daemon = True
                     t.start()
                     time.sleep(random.randint(1, 10))
-                except Exception:
-                    logging.error('run exception')
-                    pass
+                except Exception as e:
+                    if self.debug:
+                        print(e)
+                        logging.error('run exception')
+
             # time.sleep(self.cf)
             time.sleep(random.randint(10, 50))
 
