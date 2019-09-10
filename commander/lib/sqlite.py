@@ -98,8 +98,11 @@ class SQLite:
 
     def execute(self, sql, data=[]):
         data = tuple(data)
-        st = 'Excute sql: %s with data %s' if data else 'Excute sql: %s'
-        log.debug(st % (sql, data))
+        if data:
+            log.debug('Excute sql: %s with data %s' % (sql, data))
+        else:
+            log.debug('Excute sql: %s' % sql)
+
         status = self.cursor.execute(sql, list(data))
         self.conn.commit()
         return status

@@ -16,6 +16,10 @@ define("port", default=8000, help="run on the given port", type=int)
 
 class BaseHandler(tornado.web.RequestHandler):
 
+    def __init__(self, *args, **kwargs):
+        super(BaseHandler, self).__init__(*args, **kwargs)
+        self.sysconf = self.settings['sysconf']
+
     def get_current_user(self):
         return self.get_secure_cookie("username")
 
@@ -45,14 +49,14 @@ class LogoutHandler(BaseHandler):
 
 class SystemHandler(BaseHandler):
     def get(self):
-        print(self.system_settings)
-        self.render('system.html', settings=self.settings.sysconf)
+        self.render('system.html', settings=self.sysconf)
 
     def post(self):
-        for k in self.settings.keys():
-            self.settings[k] = self.get_argument(k, self.settings[k])
+        sysconf = self.settings.sysconf
+        for k in sysconf.keys():
+            sysconf[k] = self.get_argument(k, sysconf[k])
 
-        json.dump(self.sysconf, open('config/system.conf', 'w'))
+        json.dump(sysconf, open('config/system.conf', 'w'))
 
 
 class ConfigHandler(BaseHandler):
@@ -109,12 +113,10 @@ class ToyHomeApp(tornado.web.Application):
 
     def __init__(self, urls, **kwargs):
         super(ToyHomeApp, self).__init__(urls, **kwargs)
-        self.system_settings = self.settings['sysconf']
+        # self.sysconf = self.settings['sysconf']
         dbpath = self.settings.get('db_path')
         dbpath = os.path.join(dbpath, 'data.db') if dbpath else 'data.db'
         self.db = init_db(dbpath)
-        o, t, r = self.system_settings['BaseAccount'].split('$$')
-        self.gh = GitHubAPI(gtoken=t, guser=o, grepo=r)
 
 
 if __name__ == "__main__":

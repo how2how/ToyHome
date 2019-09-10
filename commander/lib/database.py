@@ -98,7 +98,7 @@ end;
 # """
 
 
-def init_db(self, dbf):
+def init_db(dbf):
     if not os.path.exists(dbf):
         log.info('Init database...')
         database = SQLite(dbf)

