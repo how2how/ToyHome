@@ -8,17 +8,26 @@ from .logger import logger as log
 
 INITSQL = ["""\
 CREATE TABLE 'BotList' (
-'ID' INTEGER PRIMARY KEY AUTOINCREMENT,
-'BotID' VARCHAR(64),
+'BotID' VARCHAR(64) PRIMARY KEY,
+'GroupID' VARCHAR(16) default '5f03d33d43e04f8f',
 'IP' VARCHAR(64),
 'Platform' VARCHAR(128),
 'Username' VARCHAR(64),
 'Hostname' VARCHAR(64),
 'SHA' VARCHAR(64),
-'Group' VARCHAR(16) default '5f03d33d43e04f8f',
 'Mark' VARCHAR(64),
 'Status' VARCHAR(8),
 'CheckTime' TIMESTAMP,
+'CreateTime' TIMESTAMP not null default (datetime('now','localtime')),
+'UpdateTime' TIMESTAMP
+);
+""","""\
+CREATE TABLE 'GroupList' (
+'GroupID' VARCHAR(64) PRIMARY KEY,
+'Name' VARCHAR(64),
+'BotCount' VARCHAR(128),
+'TaskList' VARCHAR(64),
+'Comment' VARCHAR(64),
 'CreateTime' TIMESTAMP not null default (datetime('now','localtime')),
 'UpdateTime' TIMESTAMP
 );
@@ -65,8 +74,8 @@ CREATE TABLE 'BotSettings' (
 'RetGH' VARCHAR(512),
 'RetPath' VARCHAR(128),
 'KnockPath' VARCHAR(128),
-'ComPrivateKey' VARCHAR(128),
-'BotPrivateKey' VARCHAR(128),
+'ComPrivateKey' BLOB,
+'BotPrivateKey' BLOB,
 'AESKey' VARCHAR(128),
 'HBTime' INTEGER,
 'CreateTime' TIMESTAMP not null default (datetime('now','localtime')),

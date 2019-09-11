@@ -203,17 +203,19 @@ class Agent(object):
 
     @property
     def conf_path(self):
-        conf_path = '/'.join((self._conf_path, self.gid, self.uid + '.conf'))
+        name = '-'.join((self.gid, self.uid)) + '.conf'
+        conf_path = '/'.join((self._conf_path, name))
         return conf_path
 
     @property
     def conf_url(self):
         return self.base_url + self.conf_path
 
-    @property
-    def report_base(self):
-        _report_base = '/'.join((self.ret_path, self.gid, self.uid, ''))
-        return _report_base
+    # @property
+    # def report_base(self):
+    #     name = '.'.join((self.gid, self.uid))
+    #     _report_base = '/'.join((self.ret_path, name))
+    #     return _report_base
 
     # def task_conf_url(self, taskid):
     #     path = self.conf['ConfPath'] + 'task/'
@@ -225,7 +227,7 @@ class Agent(object):
 
     @Threaded
     def heartbeat(self):
-        path = self.report_base + 'knock.hbt'
+        path = '/'.join((self.ret_path, 'hbt', '-'.join((self.gid, self.uid)) + '.data'))
         while True:
             try:
                 # info = self.get_info()
@@ -510,18 +512,16 @@ class Agent(object):
         task_name = kwargs.pop('task_name') or m.__name__
         build = int(kwargs.pop('build'))
         start = int(kwargs.pop('start'))
-        path = self.report_base + '%s.data' % '_'.join(
-            (task_name, str(build), str(start)))
+        task_id = kwargs.pop('taskid')
+        path = '/'.join((self.ret_path, 'res', '.'.join((self.uid, task_id, 'data'))))
         self.task_queue.put(1)
         if self.debug:
             print(sys.modules[m])
 
         result = sys.modules[m].run(*args, **kwargs) or 'Err'
         self.task_queue.get()
-        if result:
-            print('[*] Get result: %s' % result)
-            # time.sleep(5)
-            self.report(result, path)
+        ret = dict(BuildTime=str(build), StartTime=str(start), Result=result)
+        self.report(json.dumps(ret), path)
         return
 
     @Threaded
@@ -537,6 +537,7 @@ class Agent(object):
                 kws['task_name'] = task.get('name')
                 kws['build'] = task.get('build')
                 kws['start'] = time.time()
+                kws['taskid'] = task.get('taskid')
                 try:
                     t = threading.Thread(
                         target=self.worker, args=(mod, arg, kws))

