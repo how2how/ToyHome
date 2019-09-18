@@ -1,6 +1,6 @@
 import sqlite3 as db
 
-from commander.lib.logger import logger as log
+from lib.logger import logger as log
 
 
 class SQLite:

@@ -9,17 +9,17 @@ try:
     import Crypto
 except ImportError:
     if sys.platform == 'win32':
-        from commander.thirdparty.win.Crypto import Random
-        from commander.thirdparty.win.Crypto.PublicKey import RSA
-        from commander.thirdparty.win.Crypto.Cipher import AES, PKCS1_OAEP
+        from thirdparty.win.Crypto import Random
+        from thirdparty.win.Crypto.PublicKey import RSA
+        from thirdparty.win.Crypto.Cipher import AES, PKCS1_OAEP
     else:
-        from commander.thirdparty.unx.Crypto import Random
-        from commander.thirdparty.unx.Crypto.PublicKey import RSA
-        from commander.thirdparty.unx.Crypto.Cipher import AES, PKCS1_OAEP
+        from thirdparty.unx.Crypto import Random
+        from thirdparty.unx.Crypto.PublicKey import RSA
+        from thirdparty.unx.Crypto.Cipher import AES, PKCS1_OAEP
 
-from commander.lib.githubapi import GitHubAPI
-from commander.lib.database import init_db
-from commander.lib.datatype import AttribDict
+from lib.githubapi import GitHubAPI
+from lib.database import init_db
+from lib.datatype import AttribDict
 
 
 class DBManager(object):
@@ -43,13 +43,19 @@ class DBManager(object):
             self.db.insert('BotSettings', settings)
 
     def save_bot_key(self, botid, key, _type='rsa'):
-        pass
+        k = dict(BotPrivateKey=key)
+        if _type == 'aes':
+            k = dict(AESKey=key)
+        self.db.update('BotSettings', k, condition=dict(BotID=botid))
 
     def get_bots(self):
         return self.db.getlist('Botlist')
 
     def get_bot(self, botid):
         return self.db.getone('Botlist', condition=dict(BotID=botid))
+
+    def add_task(self, task):
+        self.db.insert('TaskList', task)
 
     def get_task_result(self, tid, bid):
         return self.db.getone('Taskresult',
@@ -325,10 +331,11 @@ class CommandBase(GitHubAPI, DBManager):
         for rt in rts:
             self.GHdelete(rt['path'], rt['sha'], 'clean')
 
-    def create_task(self, botid, name, module, Type, **settings):
+    def create_task(self, name, botid, module, Type, args, kwargs):
         taskid = os.urandom(8).encode('hex')
         task = dict(TaskID=taskid, BotID=botid, Name=name,
-                    Module=module, params=settings['params'])
+                    Module=module, args=args, kwargs=kwargs)
+        self.add_task(task)
 
     def put_task_config(self, config, taskid, plain=False):
         content = config if plain else self.encrypt(config, self.sys_private_key)

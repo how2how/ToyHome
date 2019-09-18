@@ -32,6 +32,17 @@ CREATE TABLE 'GroupList' (
 'UpdateTime' TIMESTAMP
 );
 """, """\
+CREATE TABLE 'GHAccount' (
+'ID' INTEGER PRIMARY KEY AUTOINCREMENT,
+'UserName' VARCHAR(64),
+'Password' VARCHAR(64),
+'TokenFull' VARCHAR(128),
+'TokenLimit' VARCHAR(128),
+'Mark' VARCHAR(64),
+'CreateTime' TIMESTAMP not null default (datetime('now','localtime')),
+'UpdateTime' TIMESTAMP
+);
+""", """\
 CREATE TABLE 'BotCache' (
 'ID' INTEGER PRIMARY KEY AUTOINCREMENT,
 'BotID' INTEGER,
@@ -41,7 +52,8 @@ CREATE TABLE 'BotCache' (
 );
 """, """\
 CREATE TABLE 'TaskResult' (
-'TaskID' INTEGER PRIMARY KEY AUTOINCREMENT,
+'ID' INTEGER PRIMARY KEY AUTOINCREMENT,
+'TaskID' INTEGER,
 'BotID' INTEGER,
 'Result' TEXT,
 'BuildTime' TIMESTAMP,
@@ -61,7 +73,7 @@ CREATE TABLE 'TaskList' (
 'Start' INTEGER,
 'Step' INTEGER,
 'End' INTEGER,
-'CreateTime' TIMESTAMP not null default (datetime('now','localtime'))
+'CreateTime' TIMESTAMP not null default (datetime('now','localtime')),
 'UpdateTime' TIMESTAMP
 );
 """, """\

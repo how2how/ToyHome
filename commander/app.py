@@ -5,10 +5,13 @@ import tornado.websocket
 import tornado.options
 import os.path
 import json
+# import sys
 from tornado.options import define, options
 
-from commander.lib.githubapi import GitHubAPI
-from commander.lib.database import init_db
+# sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+# print(os.curdir)
+# from commander.lib.githubapi import GitHubAPI
+from lib.database import init_db
 
 
 define("port", default=8000, help="run on the given port", type=int)
@@ -47,6 +50,18 @@ class LogoutHandler(BaseHandler):
             self.redirect("/")
 
 
+class GHAccHandler(BaseHandler):
+    def get(self):
+        self.render('system.html', settings=self.sysconf)
+
+    def post(self):
+        sysconf = self.settings.sysconf
+        for k in sysconf.keys():
+            sysconf[k] = self.get_argument(k, sysconf[k])
+
+        json.dump(sysconf, open(self.settings['CONF'], 'w'))
+
+
 class SystemHandler(BaseHandler):
     def get(self):
         self.render('system.html', settings=self.sysconf)
@@ -56,7 +71,7 @@ class SystemHandler(BaseHandler):
         for k in sysconf.keys():
             sysconf[k] = self.get_argument(k, sysconf[k])
 
-        json.dump(sysconf, open('config/system.conf', 'w'))
+        json.dump(sysconf, open(self.settings['CONF'], 'w'))
 
 
 class ConfigHandler(BaseHandler):
@@ -121,12 +136,15 @@ class ToyHomeApp(tornado.web.Application):
 
 if __name__ == "__main__":
     tornado.options.parse_command_line()
-
+    ROOT = os.path.dirname(__file__)
+    CONF = os.path.join(ROOT, 'config/system.conf')
     settings = {
-        "sysconf": json.load(open('config/system.conf', 'rb')),
-        "db_path": os.path.join(os.path.dirname(__file__), "data"),
-        "static_path": os.path.join(os.path.dirname(__file__), "static"),
-        "template_path": os.path.join(os.path.dirname(__file__), "templates"),
+        "ROOT": ROOT,
+        "CONF": CONF,
+        "sysconf": json.load(open(CONF, 'rb')),
+        "db_path": os.path.join(ROOT, "data"),
+        "static_path": os.path.join(ROOT, "static"),
+        "template_path": os.path.join(ROOT, "templates"),
         "cookie_secret": "bZJc2sWbQLKos6GkHn/VB9oXwQt8S0R0kRvJ5/xJ89E=",
         "xsrf_cookies": True,
         "autoreload": True,
